@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1a1410">
+<title>HARP TUNER 2000</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Harp Tuner"><meta name="apple-mobile-web-app-status-bar-style" content="black">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#1a1410 radial-gradient(ellipse at 50% 40%,#3a2c20,#120d0a 75%);color:#cfc4b4;font:14px Arial,sans-serif;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#view{position:fixed;inset:0;overflow:hidden}   /* the face scaled up must never widen the page (a phone would zoom out to show it) */
+#stage{position:absolute;left:0;top:0;transform-origin:0 0}
+#stage .ht.tall{background:none}
+#stage .band{position:absolute;overflow:hidden}
+#stage .band .ph{transition:transform .35s ease-out}#stage .band.drag .ph{transition:none}
+#stage .strip{touch-action:none}
+/* every switch, button and the knob answers a finger a little outside its edge */
+#stage .bt::after{content:"";position:absolute;inset:-10px}
+/* the lever marks under the name tags: the strings whose lever is up while tuning */
+#stage .lvm path{fill:#FFB020;opacity:.9;filter:drop-shadow(0 0 2px #FFB020)}#stage .ht.off .lvm path{opacity:.45;filter:none}
+#toast{position:absolute;left:50%;bottom:calc(12px + env(safe-area-inset-bottom));transform:translateX(-50%);width:max-content;max-width:90%;box-sizing:border-box;padding:9px 16px;border-radius:8px;
+  background:rgba(10,8,6,.94);color:#7DFFC8;font:700 13px "Courier New",monospace;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.6);opacity:0;transition:opacity .3s;pointer-events:none;z-index:9}
+#toast.on{opacity:1}
+.corner{position:absolute;top:calc(6px + env(safe-area-inset-top));width:40px;height:40px;border:0;border-radius:8px;background:rgba(255,255,255,.1);color:#e8dcc8;font-size:20px;z-index:8;padding:0}
+#full{right:calc(6px + env(safe-area-inset-right))}#inst{right:calc(52px + env(safe-area-inset-right));font-size:13px;font-weight:700;width:auto;padding:0 10px}
+.corner[hidden]{display:none}
+/* the tuning log: the tuner's own paper, over the whole screen at a size a phone can read */
+#logbox{position:fixed;inset:0;z-index:7;pointer-events:none;box-shadow:none;border-radius:0;overflow:visible}
+#logbox .log{pointer-events:auto;left:calc(6px + env(safe-area-inset-left));right:calc(6px + env(safe-area-inset-right));top:calc(6px + env(safe-area-inset-top));
+  bottom:calc(6px + env(safe-area-inset-bottom));width:auto;height:auto;padding:14px 28px 20px;font-size:14px;-webkit-overflow-scrolling:touch;user-select:text;-webkit-user-select:text}
+#logbox .log h3{font-size:17px;padding-right:36px}#logbox .log .x{position:fixed;right:calc(18px + env(safe-area-inset-right));top:calc(12px + env(safe-area-inset-top));font-size:26px;z-index:2}
+#logbox .log svg{width:100%;height:auto}#logbox .log input,#logbox .log select,#logbox .log button{font-size:15px;padding:4px 6px;margin:2px 0}
+#logbox .log input.hn,#logbox .log input.town{width:150px}
+#safe{position:absolute;visibility:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+</style></head><body>
+<div id="view"><div id="stage"></div></div>
+<button id="inst" class="corner" hidden title="Put the tuner on the home screen">＋ APP</button>
+<button id="full" class="corner" title="Full screen" aria-label="Full screen">⛶</button>
+<div id="toast"></div><div id="safe"></div>
+<script>
+/* HARP TUNER 2000 on a phone. The device itself is Mixtape 2's, unchanged (harp-tuner.js, its ear tuner.js and harp sound harp-sound.js,
+   copied here by tools\harp-phone.ps1); this page stands in for the parts of Mixtape it leans on:
+   - the sound engine: one AudioContext, made on the first tap (a phone only lets sound start from a tap)
+   - the files: the saved harps and the tuning log kept in this phone's own browser storage instead of the Mixtape folder
+   - the microphone: the phone's own (the page asks with the voice cleaning off); there is no Windows helper here
+   - the harp sound: the 74 MB of concert harp recordings stay on the laptop; a tapped string plays the made-up pluck instead
+   It listens only after POWER is flipped, turns POWER off when the phone goes to another app, and keeps the screen awake while on. */
+(()=>{const M2=window.M2={};
+M2.esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+M2.define=d=>{M2.def=d;};
+M2.fileUrl=p=>p.split('/').pop();   /* the pictures sit next to this page */
+})();
+</script>
+<script src="tuner.js"></script>
+<script src="harp-sound.js"></script>
+<script src="harp-tuner.js"></script>
+<script>
+(()=>{const M2=window.M2,D=M2.def,$=s=>document.querySelector(s),stage=$('#stage'),NS='http://www.w3.org/2000/svg';
+if(!D){document.body.insertAdjacentHTML('beforeend','<p style="padding:20px">The tuner did not load.</p>');return;}
+const iOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1;
+const standalone=matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: fullscreen)').matches||navigator.standalone===true;
+const store={get:k=>{try{return localStorage.getItem('ht.'+k);}catch(e){return null;}},set:(k,v)=>{try{localStorage.setItem('ht.'+k,v);return true;}catch(e){return false;}}};
+/* the settings (A =, levers, mode, harp, town), kept between visits */
+let saved={};try{saved=JSON.parse(store.get('settings')||'{}')||{};}catch(e){}
+const S=Object.assign({},D.settings,saved);
+/* the files the tuner keeps (Tuning/Harps.json, Tuning/Harp.json): in this phone's storage, asked to be kept (not cleared to make room) */
+const files={async text(p){return store.get('file:'+p);},async write(p,t){if(!store.set('file:'+p,t))throw new Error('the phone\'s storage is full');}};
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
+/* the sound engine: made on the first tap */
+let ctx=null,master=null;
+const engine={get ctx(){if(!ctx){ctx=new (window.AudioContext||window.webkitAudioContext)();master=ctx.createGain();master.connect(ctx.destination);}if(ctx.state!=='running')ctx.resume();return ctx;},
+  get master(){return engine.ctx&&master;},busy(){}};
+let toastT=0;const toast=(t,ms)=>{const e=$('#toast');e.textContent=String(t).replace(/^HARP TUNER 2000: /,'');e.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove('on'),ms||4000);};
+const host={uid:'phone',el:stage,settings:S,engine,files,get visible(){return !document.hidden;},
+  changed(){store.set('settings',JSON.stringify(S));},send(){},resized(){},toast,fileUrl:M2.fileUrl,tool(){}};
+stage.style.width=D.w+'px';stage.style.height=D.h+'px';
+const dev=D.create(host),face=stage.querySelector('.ht');if(!face)return;
+
+/* ---- the face: Mixtape 2 draws it as one photo with everything that lights laid over it in the photo's own pixels. Sideways the page
+   shows it so. Upright it builds a tall case of its own: brushed steel drawn in the photo's own metal colour, dark bays, and each
+   display, switch and button cut out of the photo whole (bezel and all) and set into it; the lit pieces that belong to each part are
+   moved into a window over it (the tuner keeps hold of them, so it lights them wherever they are). The strings are a window on the
+   photo's strings that slides ---- */
+const PW=1213,PH=880,BOX=[62,77,1090,729],ph0=face.querySelector('.ph'),photo=ph0.querySelector('img'),svg0=ph0.querySelector('svg');
+const WX=i=>141+26.686*i,TX=i=>131+26.69*i,SX=[106,1110];   /* the wires and name tags (as in harp-tuner.js); how far the strings window slides */
+/* which part of the face each lit piece belongs to */
+const zoneOf=e=>{const c=e.getAttribute('class')||'',k=e.dataset&&e.dataset.k;if(k)return k;   /* power, mode, log, view, ref (the A = knob), levers */
+  if(/\bvf\b|\bnl\b/.test(c))return 'note';if(/^lt\b/.test(c))return 'target';if(c==='rd')return 'cents';if(/^(ar|okl)\b/.test(c))return 'tune';
+  if(/^led\b/.test(c))return 'power';if(c==='rdm')return 'ref';return 'strings';};
+/* the lever marks: a little lever under the tag of each string tuned with its lever up */
+const lvm=document.createElementNS(NS,'g');lvm.setAttribute('class','lvm');
+const items=[...svg0.children,...[...ph0.children].filter(e=>e.tagName==='DIV')].map(e=>({e,z:zoneOf(e),svg:e.namespaceURI===NS}));
+items.splice(items.findIndex(x=>/^pick\b/.test(x.e.getAttribute('class')||'')),0,{e:lvm,z:'strings',svg:true});   /* under the strings' touch areas */
+const ALL=['note','target','cents','tune','strings','power','mode','log','view','ref','levers'];
+/* the upright case, in its own units (412 wide): where each part of the photo goes. c: the part in the photo, s: its size here */
+function upright(){const W=412,M=10,IW=W-2*M-12,B=[],paint={bays:[],parts:[]};let y=M+6,s;
+  const part=(z,c,s,x,y,o={})=>{const b=Object.assign({z:[].concat(z||[]),c,s,x,y},o);B.push(b);paint.parts.push(b);return b;};
+  /* the name, and a hazard stripe under it */
+  s=.6;part(null,[112,100,436,52],s,M+6,y,{f:7});part(null,[552,102,182,44],s,M+6+436*s+6,y+1,{f:7});y+=52*s+5;
+  paint.stripe=[M+6,y,IW,13];y+=13+9;
+  /* the displays' bay: ON TARGET across, then NOTE beside CENTS over TUNE */
+  const by=y;y+=6;s=IW/676;part('target',[424,170,676,116],s,M+6,y,{f:3});y+=116*s+5;
+  s=(IW-5)/(308+339);part('note',[111,170,308,244],s,M+6,y,{f:3});const cx=M+6+308*s+5;part('cents',[424,289,339,124],s,cx,y,{f:3});part('tune',[767,289,339,124],s,cx,y+122*s,{f:3});
+  y+=244*s+6;paint.bays.push([M,by,W-2*M,y-by]);y+=8;
+  /* the strings' bay, a window that slides */
+  const sy=y,SH=325;s=(SH-12)/240;part('strings',[300,442,IW/s,240],s,M+6,y+6,{strip:true,img:true,nopaint:true});y+=SH;paint.bays.push([M,sy,W-2*M,SH]);y+=10;
+  /* the controls: two rows, each cut out whole */
+  s=.69;const row=(list,h)=>{const tot=list.reduce((a,c)=>a+c[1][2]*s,0),gap=(W-2*M-tot)/(list.length+1);let x=M+gap;
+    for(const [z,c] of list){part(z,c,s,x,y+(h-c[3]*s)/2,{f:6});x+=c[2]*s+gap;}y+=h;};
+  row([['power',[106,692,140,96]],['mode',[243,692,135,96]],['log',[376,704,176,80]]],96*s);y+=4;
+  row([['view',[562,704,168,80]],['ref',[731,692,180,96]],['levers',[910,696,206,88]]],96*s);
+  y+=M;return {w:W,h:Math.round(y),B,paint};}
+function bands(portrait){return portrait?upright():{w:D.w,h:D.h,B:[{c:BOX.slice(),s:D.w/BOX[2],x:0,y:0,z:ALL,img:true}]};}
+const mk=(t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e;};
+function build(L){for(const b of L.B){const [cx,cy,cw,ch]=b.c,el=mk('div','band'+(b.strip?' strip':'')),ph=mk('div','ph'),sv=document.createElementNS(NS,'svg');
+    el.style.cssText=`left:${b.x.toFixed(2)}px;top:${b.y.toFixed(2)}px;width:${(cw*b.s).toFixed(2)}px;height:${(ch*b.s).toFixed(2)}px`;
+    sv.setAttribute('viewBox',`0 0 ${PW} ${PH}`);if(b.img)ph.appendChild(photo.cloneNode());ph.appendChild(sv);el.appendChild(ph);Object.assign(b,{el,ph,sv});place(b);}
+  if(L.paint)L.bg=paint(L);return L;}
+const place=b=>{b.ph.style.transform=`scale(${b.s}) translate(${(-b.c[0]).toFixed(1)}px,${-b.c[1]}px)`;};
+/* the upright case, painted once: steel in the photo's own colour, brushed, screws, the hazard stripe, the bays, and the parts */
+function paint(L){const R=3,cv=mk('canvas','case'),g=cv.getContext('2d');cv.width=L.w*R;cv.height=L.h*R;
+  cv.style.cssText=`position:absolute;left:0;top:0;width:${L.w}px;height:${L.h}px`;
+  const go=()=>{g.setTransform(R,0,0,R,0,0);const W=L.w,H=L.h,P=L.paint;
+    const avg=(x,y,w,h)=>{const c=mk('canvas');c.width=c.height=1;const q=c.getContext('2d');q.drawImage(photo,x,y,w,h,0,0,1,1);return [...q.getImageData(0,0,1,1).data];};
+    const [r,gg,b]=avg(700,790,90,10),col=(k,a=1)=>`rgba(${Math.min(255,r*k)|0},${Math.min(255,gg*k)|0},${Math.min(255,b*k)|0},${a})`;
+    const rr=(x,y,w,h,q)=>{g.beginPath();g.moveTo(x+q,y);g.arcTo(x+w,y,x+w,y+h,q);g.arcTo(x+w,y+h,x,y+h,q);g.arcTo(x,y+h,x,y,q);g.arcTo(x,y,x+w,y,q);g.closePath();};
+    /* the steel: lighter at the top, as the photo's light falls; fine horizontal brushing */
+    const gr=g.createLinearGradient(0,0,0,H);gr.addColorStop(0,col(1.12));gr.addColorStop(.5,col(1));gr.addColorStop(1,col(.9));rr(0,0,W,H,9);g.fillStyle=gr;g.fill();
+    g.save();rr(0,0,W,H,9);g.clip();let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+    for(let i=0;i<H*R*.8;i++){const yy=rnd()*H;g.fillStyle=rnd()<.5?`rgba(255,255,255,${.05+rnd()*.07})`:`rgba(0,0,0,${.03+rnd()*.05})`;g.fillRect(rnd()*W*.6-W*.2,yy,W*(.3+rnd()*.9),1/R);}
+    g.restore();rr(.75,.75,W-1.5,H-1.5,9);g.strokeStyle='rgba(40,44,48,.85)';g.lineWidth=1.5;g.stroke();rr(2.5,2.5,W-5,H-5,7.5);g.strokeStyle='rgba(255,255,255,.35)';g.lineWidth=1;g.stroke();
+    /* screws */
+    for(const [sx,sy] of [[9,9],[W-9,9],[9,H-9],[W-9,H-9]]){const sg=g.createRadialGradient(sx-1.5,sy-1.5,.5,sx,sy,4.5);sg.addColorStop(0,'#f4f6f8');sg.addColorStop(1,'#8b9198');
+      g.beginPath();g.arc(sx,sy,4.5,0,7);g.fillStyle=sg;g.fill();g.strokeStyle='#5d636a';g.lineWidth=.7;g.stroke();g.beginPath();g.moveTo(sx-3,sy-1);g.lineTo(sx+3,sy+1);g.strokeStyle='#4a4f55';g.lineWidth=1.1;g.stroke();}
+    /* the hazard stripe */
+    const [hx,hy,hw,hh]=P.stripe;g.save();rr(hx,hy,hw,hh,2);g.clip();g.fillStyle='#f5c518';g.fillRect(hx,hy,hw,hh);g.fillStyle='#141414';
+    for(let x=hx-hh;x<hx+hw+hh;x+=16){g.beginPath();g.moveTo(x,hy+hh);g.lineTo(x+8,hy+hh);g.lineTo(x+8+hh*.8,hy);g.lineTo(x+hh*.8,hy);g.fill();}g.restore();
+    rr(hx,hy,hw,hh,2);g.strokeStyle='#141414';g.lineWidth=1.4;g.stroke();
+    /* the bays: black glass, a darker rim, a soft shade along the top */
+    for(const [x,y,w,h] of P.bays){rr(x,y,w,h,7);g.fillStyle='#0b0c0d';g.fill();g.strokeStyle='rgba(20,22,25,.9)';g.lineWidth=1.2;g.stroke();
+      const sh=g.createLinearGradient(0,y,0,y+10);sh.addColorStop(0,'rgba(0,0,0,.5)');sh.addColorStop(1,'rgba(0,0,0,0)');rr(x,y,w,h,7);g.fillStyle=sh;g.fill();}
+    /* the parts, each with its edge faded into what is under it */
+    for(const b of P.parts){if(b.nopaint)continue;const [cx,cy,cw,ch]=b.c,w=Math.round(cw*b.s*R),h=Math.round(ch*b.s*R),o=mk('canvas'),q=o.getContext('2d');o.width=w;o.height=h;
+      q.drawImage(photo,cx,cy,cw,ch,0,0,w,h);const f=(b.f||4)*R;q.globalCompositeOperation='destination-out';
+      for(const [x0,y0,x1,y1,rx,ry,rw,rh] of [[0,0,f,0,0,0,f,h],[w,0,w-f,0,w-f,0,f,h],[0,0,0,f,0,0,w,f],[0,h,0,h-f,0,h-f,w,f]]){const e=q.createLinearGradient(x0,y0,x1,y1);
+        e.addColorStop(0,'rgba(0,0,0,1)');e.addColorStop(1,'rgba(0,0,0,0)');q.fillStyle=e;q.fillRect(rx,ry,rw,rh);}
+      g.setTransform(1,0,0,1,0,0);g.drawImage(o,Math.round(b.x*R),Math.round(b.y*R));g.setTransform(R,0,0,R,0,0);}};
+  if(photo.complete&&photo.naturalWidth)go();else photo.addEventListener('load',go,{once:true});
+  return cv;}
+const LAYOUT={};let mode='';
+function use(portrait){const m=portrait?'port':'land';if(m===mode)return;mode=m;const L=LAYOUT[m]||(LAYOUT[m]=build(bands(portrait)));
+  for(const it of items){const b=L.B.find(b=>b.z.includes(it.z));if(b)(it.svg?b.sv:b.ph).appendChild(it.e);}   /* the lit pieces, in their first order */
+  face.querySelectorAll(':scope>.band,:scope>.case').forEach(e=>e.remove());if(L.bg)face.appendChild(L.bg);L.B.forEach(b=>face.appendChild(b.el));
+  face.classList.toggle('tall',portrait);stage.style.width=L.w+'px';stage.style.height=L.h+'px';lastLit=-2;sync();}
+ph0.remove();LAYOUT.land=build(bands(false));LAYOUT.port=build(bands(true));   /* both made now, so turning the phone shows the photo at once */
+
+/* ---- the strings window (upright): slides to the string heard or chosen; a finger slides it too ---- */
+let drag=null,dragged=false;
+const strip=()=>mode==='port'&&LAYOUT.port.B.find(b=>b.strip);
+function slide(x,anim){const b=strip();if(!b)return;b.c[0]=Math.max(SX[0],Math.min(SX[1]-b.c[2],x));b.el.classList.toggle('drag',!anim);place(b);}
+const centre=i=>{const b=strip();if(b)slide(WX(i)-b.c[2]/2,true);};
+stage.addEventListener('pointerdown',e=>{const b=strip();if(!b||!b.el.contains(e.target))return;drag={x:e.clientX,c:b.c[0],k:b.el.getBoundingClientRect().width/b.c[2],id:e.pointerId};dragged=false;});
+addEventListener('pointermove',e=>{if(!drag||e.pointerId!==drag.id)return;const dx=e.clientX-drag.x;if(!dragged&&Math.abs(dx)<10)return;dragged=true;slide(drag.c-dx/drag.k,false);});
+addEventListener('pointerup',()=>{drag=null;});addEventListener('pointercancel',()=>{drag=null;dragged=false;});
+stage.addEventListener('click',e=>{if(dragged){e.stopPropagation();e.preventDefault();dragged=false;}},true);   /* a slide is not a tap on a string */
+
+/* ---- what the tuner lit: the strip follows the string being tuned, the phone buzzes at OK, the lever marks follow the tags ---- */
+let lastLit=-2,wasOk=false,tagSig='',syncQ=0;
+function sync(){syncQ=0;
+  const lit=face.querySelector('.tag.lit'),i=lit?+lit.dataset.i:-1;if(i!==lastLit){if(i>=0&&!drag)centre(i);else if(lastLit===-2)centre(14);lastLit=i;}   /* nothing yet: middle C */
+  const ok=!!face.querySelector('.okl.on');if(ok&&!wasOk&&navigator.vibrate)try{navigator.vibrate(45);}catch(e){}wasOk=ok;
+  const tags=[...face.querySelectorAll('.tag')].map(t=>t.textContent),sig=tags.join('|');
+  if(sig!==tagSig){tagSig=sig;lvm.innerHTML=tags.map((t,i)=>/^[EAB]\d$/.test(t)?`<path d="M${(TX(i)+11).toFixed(1)} 676 l5 8 h-10 z"><title>lever up</title></path>`:'').join('');}   /* E4, not E♭4: tuned with its lever up */
+  power();}
+new MutationObserver(()=>{if(!syncQ)syncQ=requestAnimationFrame(sync);}).observe(face,{subtree:true,attributes:true,attributeFilter:['class'],childList:true});
+
+/* ---- POWER: the screen stays awake; on an iPhone the sound is set to play and record (so a tapped string sounds from the speaker,
+   whatever the ring/silent switch says), and to play only when the microphone is off ---- */
+const on=()=>!face.classList.contains('off');let lock=null,was=null;
+function power(){const p=on()&&!document.hidden;if(p===was)return;was=p;
+  if(navigator.audioSession)try{navigator.audioSession.type=p?'play-and-record':'playback';}catch(e){}
+  if(p&&!lock&&navigator.wakeLock)navigator.wakeLock.request('screen').then(l=>{if(!on()){l.release();return;}lock=l;l.addEventListener('release',()=>{if(lock===l)lock=null;});}).catch(()=>{});
+  else if(!p&&lock){const l=lock;lock=null;l.release().catch(()=>{});}}
+if(navigator.audioSession)try{navigator.audioSession.type='playback';}catch(e){}
+/* another app, or the screen off: POWER off, so the microphone is never left open */
+document.addEventListener('visibilitychange',()=>{dev.visible(!document.hidden);if(document.hidden&&on())face.querySelector('[data-k="power"]').click();was=null;power();});
+/* an older iPhone has no say over the silent switch: the first string tapped says so */
+let silentSaid=false;
+stage.addEventListener('click',e=>{if(!iOS||navigator.audioSession||silentSaid||!e.target.closest('.pick'))return;silentSaid=true;
+  setTimeout(()=>toast('No sound? The ring/silent switch may be set to silent',6000),400);});
+
+/* ---- the tuning log: moved out over the whole screen, at a size a phone can read ---- */
+const lb=mk('div','ht');lb.id='logbox';document.body.appendChild(lb);lb.appendChild(face.querySelector('.log'));
+
+/* ---- as big as the screen allows: upright or sideways, inside the phone's notch and rounded corners ---- */
+function fit(){if(document.activeElement&&/INPUT|SELECT/.test(document.activeElement.tagName))return;   /* the keyboard is up: leave it be */
+  const cs=getComputedStyle($('#safe')),[t,r,b,l]=['Top','Right','Bottom','Left'].map(k=>parseFloat(cs['padding'+k])||0);
+  const V=$('#view'),vw=V.clientWidth-l-r,vh=V.clientHeight-t-b,portrait=vh>vw*1.1;use(portrait);
+  const L=LAYOUT[mode],m=portrait?0:10,k=Math.min((vw-2*m)/L.w,(vh-2*m)/L.h);
+  stage.style.transform=`translate(${(l+(vw-L.w*k)/2).toFixed(1)}px,${(t+(vh-L.h*k)/2).toFixed(1)}px) scale(${k.toFixed(4)})`;}
+addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,250));fit();
+
+/* ---- full screen (Android, in the browser): hides Chrome's bars; not needed once it is on the home screen ---- */
+const fb=$('#full');fb.hidden=standalone||!document.documentElement.requestFullscreen;
+fb.onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(()=>{});};
+document.addEventListener('fullscreenchange',()=>{fb.textContent=document.fullscreenElement?'✕':'⛶';setTimeout(fit,200);});
+/* ---- on the home screen: Android offers it (＋ APP); an iPhone is told how, since only there does Safari keep the log for good ---- */
+let offer=null;const ib=$('#inst');
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();offer=e;ib.hidden=false;});
+ib.onclick=async()=>{if(!offer)return;offer.prompt();try{await offer.userChoice;}catch(e){}offer=null;ib.hidden=true;};
+addEventListener('appinstalled',()=>{ib.hidden=true;toast('On your home screen now: open it from there');});
+if(iOS&&!standalone){const n=+(store.get('iosHint')||0);if(n<3){store.set('iosHint',n+1);
+  setTimeout(()=>toast('To keep your tuning log: Share ⎋ then “Add to Home Screen”',8000),1500);}}
+/* ---- works with no signal once it has been opened (sw.js keeps a copy of every file) ---- */
+if('serviceWorker' in navigator&&location.protocol==='https:'||location.hostname==='localhost')navigator.serviceWorker&&navigator.serviceWorker.register('sw.js').catch(()=>{});
+})();
+</script>
+</body></html>
